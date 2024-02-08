@@ -10,7 +10,7 @@ library(asreml)
 source("asreml_helperFunctions.R")
 source("helper_functions.R")
 
-setwd("/data/SunGrains_Analyses/jan24_publication_attempt/")
+setwd("/data/SunGrains_Analyses/jan24_publication_attempt/SG_GxE_Predictions")
 
 dateStr <- format(Sys.Date(),  "%b%d%y")
 
@@ -37,8 +37,11 @@ dplyr::filter(allPhenosGS, is.na(FullSampleName)) %>% dplyr::select(Year) %>% co
 #Reduce size of vcf by removing unphenotyped lines
 allVCF <- select.inds(allVCF, id %in% unique(allPhenosGS$FullSampleName))
 allVCF <- select.snps(allVCF, maf > 0.05) 
+allVCF <- LD.thin(allVCF, threshold = 0.8, max.dist = 500e6, dist.unit = "bases")
+
 allM <- as.matrix(allVCF)
 
+write.csv(allM, paste0("Intermediate_Outputs/thinned_SG_M_", dateStr, ".csv"))
 
 ####Convert Marker Matrix to G
 G <- m_to_g(allM)
