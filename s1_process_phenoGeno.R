@@ -10,8 +10,6 @@ library(asreml)
 source("asreml_helperFunctions.R")
 source("helper_functions.R")
 
-setwd("/data/SunGrains_Analyses/jan24_publication_attempt/SG_GxE_Predictions")
-
 dateStr <- format(Sys.Date(),  "%b%d%y")
 
 ######## Reading in and processing raw phenotype and genotype data from Jeanette Lyerly and Jared Smith
