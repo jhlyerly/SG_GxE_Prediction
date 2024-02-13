@@ -1,104 +1,57 @@
-
-dateStr <- format(Sys.Date(),  "%b%d%y")
-
-######## Running Cross Validations
-
-#For the BGLR models, I'll have some hyper-parameters involving
-#Number of iterations and number of PCs to use. I am thinking of approaching this as follows
-
-#run strict grid search wtih bsae model to get optimal hyperparameters for base model
-
-#For each model modification, run new restricted search using base model hyperparameters as start. 
-
-####
-#For x-validation, I think we're interested in two scenarios. Neither is a random xval.
-#leave-one-env-out - Leave on environment out. This is what we're most interested in. Includes info on genotype in other locs
-#leave-one-year-out - Leave a year of *nursery* out. We don't just filter out a year here. 
-#For each year, we get a list of what lines are in that year's nurseries, and filter ot make sure those lines aren't in past or future years.
-
-###
-
-#Old code below...
-
-#FIND THE BEST iterations to use for optimizaiton and testing...
-
-iterMu <- c()
-iterVE <- c()
-for (iIter in seq(from = 8000, to = 20000, by = 500)) {
-  iBurn <- iIter / 10
-  testInt <- BGLR(allBLUEswWeathwM$Yield, ETA = eta, nIter = iIter, burnIn = iBurn)
-  
-  iterMu <- c(iterMu, testInt$mu)
-  iterVE <- c(iterVE, testInt$varE)
-  plot(iterVE)
-}
-
-#Wrap in function to multi-thread
-
-testBaseModel <- function(idNum, bglrResponse, bglrETA, nIter, nBurn) {
-  BGLR(bglrResponse, ETA = bglrETA, nIter = nIter, burnIn = nBurn,
-       thin=1,
-       saveAt=paste('iter_tests/',as.character(idNum),sep=''))
-}
-
+library(BGLR)
 library(parallel)
 library(coda)
 
-testBaseModel(1, allBLUEswWeathPCswMPCs$Yield, eta, 4000, 500)
+dateStr <- commandArgs(trailingOnly=TRUE)[1] 
 
-test <- mclapply(c(1:5), testBaseModel, mc.cores = 5, bglrResponse = allBLUEswWeathPCswMPCs$Yield, bglrETA = eta, nIter = 4000, nBurn = 500)
+source("Model_Scripts/model_functions.R")
 
-# Load MCMC draws of varE in matrix varE_L
-varE_L=matrix(NA,ncol=4,nrow=4000)
-for (k in 2:5){
-  varE_L[,k-1]=read.table( file=paste('iter_tests/',k,'varE.dat',sep='') )$V1
+######## Running Cross Validations
+
+#### Read in model inputs
+
+gxe_eta <- readRDS(paste0("Intermediate_Outputs/gxe_eta_", dateStr, ".rds"))
+gBLUEs <- read.csv(paste0("Intermediate_Outputs/BLUEs_forEta_", dateStr, ".csv"))[,-1]
+
+#Temporary -- memory issues...
+
+gxe_eta$Geno$X <- gxe_eta$Geno$X[1:6000, ]
+gxe_eta$Env$X <- gxe_eta$Env$X[1:6000, ]
+gxe_eta$GxS$X <- gxe_eta$GxS$X[1:6000, ]
+gxe_eta$GxW$X <- gxe_eta$GxW$X[1:6000, ]
+
+gBLUEs <- gBLUEs[1:6000, ]
+
+#### Run an initial model to confirm convergence with chosen iterations. Run 5 iterations to test convergence.
+#Start off with more than we think we need and then test convergence via gelman plots.
+#Code modified from C Maltecca for testing
+
+curBurnIn <- 1500 #1500
+curIter <- 6500 #6500
+
+#Run the same BGLR model 5 times without saving, but load in chain info from generate dat files
+
+varE_List = matrix(NA, ncol = 5, nrow= curIter)
+varG_List = matrix(NA, ncol = 5, nrow = curIter)
+varGxW_List = matrix(NA, ncol = 5, nrow = curIter)
+
+for (iter in c(1:5)) {
+  BGLR(gBLUEs$Yield, ETA = gxe_eta, nIter = curIter, burnIn = curBurnIn,
+       thin = 1,
+       saveAt = paste0("Model_Scripts/BGLR_Files/iterTest_i", iter, "_"))
+  
+  varE_List[,iter] <- read.table(paste0("Model_Scripts/BGLR_Files/iterTest_i", iter, "_", "varE.dat"))$V1
+  varG_List[,iter] <- read.table(paste0("Model_Scripts/BGLR_Files/iterTest_i", iter, "_", "ETA_Geno_lambda.dat"))$V1
+  varGxW_List[,iter] <- read.table(paste0("Model_Scripts/BGLR_Files/iterTest_i", iter, "_", "ETA_GxW_lambda.dat"))$V1
 }
 
-# Load MCMC draws of lambda in matrix Lambda
-Lambda=matrix(NA,ncol=4,nrow=4000)
-for (k in 2:5){
-  Lambda[,k-1]=read.table( file=paste('iter_tests/',k,'ETA_GxE_lambda.dat',sep='') )$V1
-}
-
-# Select parameter
-draws=varE_L#
-draws=Lambda
-
-# Statistics for all chains
-summary(mcmc(draws))
-
-# MCMC object with all chains
-idx=500:4000
-THETA=mcmc.list(mcmc(draws[idx,1]),
-                mcmc(draws[idx,2]),
-                mcmc(draws[idx,3]),
-                mcmc(draws[idx,4]))
-
-# Gelman-Rubin statistic
-gelman.rubin=gelman.diag(THETA)
-gelman.rubin
-
-## Potential scale reduction factors:
-## 
-##      Point est. Upper C.I.
-## [1,]       1.06       1.14
-
-# Gelman-Plot
-# Create output file 
-par(mfrow=c(1,1))
-par(mar = c(5, 5, 5, 5), mgp=c(3,1,0) )
-gelman.plot(THETA,
-            main='Bayesian LASSO',
-            xlab='Iteration',
-            cex.lab=1.2,
-            cex=1.5,
-            lwd=2)
+#Export Gelman Plots to analyze and decide on iterations for given burnin
+BGLR_to_gelman(varE_List, dirName = "Model_Scripts/Plots/", varTitle = "varE_test", burnIn = curBurnIn)
+BGLR_to_gelman(varG_List, dirName = "Model_Scripts/Plots/", varTitle = "varG_test", burnIn = curBurnIn)
+BGLR_to_gelman(varGxW_List, dirName = "Model_Scripts/Plots/", varTitle = "varGxE_test", burnIn = curBurnIn)
 
 
-#3500 iterations after 500 burn in seems like sweet spot for convergence. Let's go with 1000 burn in, 4000 iterations
-################
-
-testInt <- BGLR(allBLUEswWeathwM$Yield, ETA = eta, nIter = niter, burnIn = burn)
+#Based on reading in of model chains, I think burnIn of 1500 should be sufficient.
 
 
 xValModel <- function(envName, bglrFrame, bglrETA, nIter, nBurn) {
@@ -229,3 +182,21 @@ for (env in c(2:length(envPredsListHDR))) {
   allPredsHDR2 <- rbind(allPredsHDR2, envPredsListHDR[[env]])
   blindCorListHDR2 <- c(blindCorListHDR2, cor(envPredsListHDR[[env]]$Yield, envPredsListHDR[[env]]$yHat))
 }
+
+
+
+################Old code here for model testing
+#For the BGLR models, I'll have some hyper-parameters involving
+#Number of iterations and number of PCs to use. I am thinking of approaching this as follows
+
+#run strict grid search wtih bsae model to get optimal hyperparameters for base model
+#I don't think I need any sort of like.. grid search... should come out from analysis of chains
+#For each model modification, run new restricted search using base model hyperparameters as start. 
+
+####
+#For x-validation, I think we're interested in two scenarios. Neither is a random xval.
+#leave-one-env-out - Leave on environment out. This is what we're most interested in. Includes info on genotype in other locs
+#leave-one-year-out - Leave a year of *nursery* out. We don't just filter out a year here. 
+#For each year, we get a list of what lines are in that year's nurseries, and filter ot make sure those lines aren't in past or future years.
+
+###

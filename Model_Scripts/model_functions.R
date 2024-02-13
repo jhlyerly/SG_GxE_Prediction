@@ -1,9 +1,35 @@
-library(BGLR)
 
-nIter <- 15000
-burnIn <- 5000
 
 ######## Helper functions to work with model functions (could be moved to sep file)
+
+#### Generate Gelman Plots for multiple runs of same model
+
+BGLR_to_gelman <- function(chainTable, dirName, varTitle, burnIn) {
+  #Generate MCMC object with all chains
+  
+  chainList <- list()
+  for (col in c(1:ncol(chainTable))) {
+    chainList[[col]] <- mcmc(chainTable[burnIn:nrow(chainTable), col]) 
+  }
+  
+  chainTheta <- mcmc.list(chainList)
+
+  # Gelman-Plot
+  # Create output file 
+  
+  pdf(paste0(dirName, varTitle, "_gelmanPlot.pdf"))
+  
+  par(mfrow=c(1,1))
+  par(mar = c(5, 5, 5, 5), mgp=c(3,1,0) )
+  gelman.plot(chainTheta,
+              main=varTitle,
+              xlab='Iteration',
+              cex.lab=1.2,
+              cex=1.5,
+              lwd=2)
+ 
+  dev.off() 
+}
 
 #### Prune model data for cross-validation
 prune_data <- function(remLevel, yieldVals, etaKey) {
@@ -30,6 +56,10 @@ get_PA_BGLR <- function(bglrModel, validation_yield, validation_eta) {
   curPA <- cor(validation_yield, prediction_yield)
   
   return(curPA)
+}
+
+test_model_iterations <- function(bglrModel) {
+  
 }
 
 ######## Model functions to be compared through cross validation

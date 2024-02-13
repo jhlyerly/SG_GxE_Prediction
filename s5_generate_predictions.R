@@ -1,8 +1,7 @@
 library(tidyverse)
 library(readxl)
 
-
-dateStr <- format(Sys.Date(),  "%b%d%y")
+dateStr <- commandArgs(trailingOnly=TRUE)[1]
 
 #####Change this based on argument from script call...
 
