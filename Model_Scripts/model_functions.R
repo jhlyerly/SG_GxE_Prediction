@@ -21,6 +21,7 @@ leaveOneEnvOut <- function(hiddenLevel, modelName, eta, etaKey, burnIn, nIter) {
   } else if (modelName == "m4") {
     modYHats <- m4_BGLR_GxS(eta, hiddenYVals, burnIn, nIter)
   } else if (modelName == "m5") {
+    etaKey$HD[which(etaKey$Environment == hiddenLevel)] <- NA
     modYHats <- m3_BGLR_GxE(eta, hiddenYVals, etaKey, burnIn, nIter)
   }
   
@@ -79,12 +80,41 @@ m4_BGLR_GxS <- function(eta, yVals, burnIn, nIter) {
 }
 
 #### Run BGLR GxW + GxS + HD x Weather model
-m5_BGLR_HD <- function(eta, yVals, burnIn, nIter) {
+m5_BGLR_HD <- function(eta, yVals, etaKey, burnIn, nIter) {
+  
+  M <- eta$Geno$X
+  
+  #I don't think this is strictly necessary but might speed things up a bit
+  hdM <- M[!is.na(etaKey$HD), ]
+  hdEtaKey <- etaKey[!is.na(etaKey$HD), ]
+  
+  envX <- model.matrix(~ hdEtaKey$Environment)
+ 
+  hdETA <- list(Env = list(X = envX, model = "FIXED"),
+                Geno = list(X = hdM, model = "BL"))
+ 
+  #It doesn't seem like there's a big benefit to fitting an interaction with absolute prediction of HD
+  #within each env vs just overall ranking. Could be b/c of shrinkage -- not predicting absolute phenotypes well?
+  #Using the same burnin/iter as the full model is probly a bit conservative, but simpler.
+  
+  hdModel <- BGLR(y = hdEtaKey$HD, ETA = hdETA,
+                  burnIn = burnIn, nIter = nIter, thin = 5,
+                  saveAt = "Model_Scripts/BGLR_Files/m5_HD_")
+  
+  #We could then calculate a prediction for each genotype, then do a left join to the normal eta.
+  #But I believe this is simpler and should yield equivalent results.
+  hdVals <- as.matrix(M) %*% hdModel$ETA$Geno$b
+  
+  #It's interesting to think about what's actually going on here, I think we're basically creating an alternative
+  #GxW with a different weighting of the markers. There's probably a more straightforward way to approach this as
+  #a feature selection/weighing problem.
+  
+  #Bring in weather PCs and calculate
+  
+  HDxW <- data.frame(HD = hdVals, as.vector(hdVals) * as.matrix(eta$wPCs$X[,-1]))
+                  
   selectedETA <- eta[c("Geno", "Env", "GxW", "GxS")]
-  
-  hdVals
-  
-  hdModel <- BGLR()
+  selectedETA[["HDxW"]] <- list(X = HDxW, model = "BL")
   
   curModel <- BGLR(y = yVals, ETA = selectedETA,
                     burnIn = burnIn, nIter = nIter, thin=5,

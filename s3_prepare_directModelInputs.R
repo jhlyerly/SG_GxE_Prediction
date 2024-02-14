@@ -61,6 +61,8 @@ wPC_ls <- wPCs$x
 colnames(wPC_ls) <- paste0("w", colnames(wPC_ls))
 gBLUEswWeathPCswM <- dplyr::left_join(gBLUEswWeathPCswM, data.frame(Environment = rownames(wPC_ls), wPC_ls[,1:nWPCs]), by = "Environment")
 
+write.csv(wPC_ls, paste0("Intermediate_Outputs/wPCs_fromWMat_", dateStr, ".csv"))
+
 #Note that this is for X-Validation, not preduction -- will be predicting lines in total training data, not all breeding lines. 
 
 mPCs <- prcomp(allM)
@@ -125,6 +127,7 @@ GxW_Term <- GxW_Term[, -1]
 rm(list = c("gBLUEswWeathwM", "gBLUEswWeathPCswM"))
 
 #### Assemble ETA list and write out
+#We keep in matrix of weather PCs and marker to feed to later functions
 
 eta <-  list(Geno = list(X = gBLUEswWeathPCswMPCs[, grepl("S\\d[A,B,D]_", colnames(gBLUEswWeathPCswMPCs))], model = "BL"),
              Env = list(X = scale(gBLUEswWeathPCswMPCs[, grepl("mean_", colnames(gBLUEswWeathPCswMPCs))]), model = "BL"),
