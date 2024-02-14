@@ -1,91 +1,95 @@
-
-
-######## Helper functions to work with model functions (could be moved to sep file)
-
-#### Generate Gelman Plots for multiple runs of same model
-
-BGLR_to_gelman <- function(chainTable, dirName, varTitle, burnIn) {
-  #Generate MCMC object with all chains
-  
-  chainList <- list()
-  for (col in c(1:ncol(chainTable))) {
-    chainList[[col]] <- mcmc(chainTable[burnIn:nrow(chainTable), col]) 
-  }
-  
-  chainTheta <- mcmc.list(chainList)
-
-  # Gelman-Plot
-  # Create output file 
-  
-  pdf(paste0(dirName, varTitle, "_gelmanPlot.pdf"))
-  
-  par(mfrow=c(1,1))
-  par(mar = c(5, 5, 5, 5), mgp=c(3,1,0) )
-  gelman.plot(chainTheta,
-              main=varTitle,
-              xlab='Iteration',
-              cex.lab=1.2,
-              cex=1.5,
-              lwd=2)
- 
-  dev.off() 
-}
-
-#### Prune model data for cross-validation
-prune_data <- function(remLevel, yieldVals, etaKey) {
-  #I don't think we strictly need to remove rows of the eta, but it likely doesn't hurt.
-  if (grepl("^20\\d\\d$", remLevel)) {
-    #remove years
-   
-    #add years to new eta/yield (prediction)
-  } else {
-    #remove years
-   
-    #add years to new eta/yield (prediction)
-  }
-
-  pruned_data <- list("training_yield" = training_yield, "training_eta" = training_eta,
-                      "validation_yield" = validation_yield, "validation_eta" = validation_eta)
-  
-  return(pruned_yieldVals)
-}
-
-get_PA_BGLR <- function(bglrModel, validation_yield, validation_eta) {
-  #Run predictions for validation set with matrix math
-  prediction_yield <- x %*% y
-  curPA <- cor(validation_yield, prediction_yield)
-  
-  return(curPA)
-}
-
-test_model_iterations <- function(bglrModel) {
-  
-}
-
 ######## Model functions to be compared through cross validation
 
-#### Run BGLR Base model
-m3_BGLR_GxE <- function(nIter, burnIn, dateStr, remLevel = "") {
+#Think I need two levels. First level is cross-validation type -- hides data and generates an ETA.
+#ETA is passed to th model function desired (write code so RRBLUP uses BGLR style eta)
+#Model function has to parse and do the predictions, just reeturn phenotype predictions. Cuz it will be different for each model. 
+#Top-level function parses returned parameters and gets correlation for hidden level
+
+
+#### CV Scenario One
+leaveOneEnvOut <- function(hiddenLevel, modelName, eta, etaKey, burnIn, nIter) {
   
-  eta <- readRDS(file = paste0("Model_Inputs/gxe_yield_eta_", dateStr, ".rds"))
-  yieldVals <- readRDS(file = paste0("Model_Inputs/yieldVals_forEta_", dateStr, ".rds"))
-  etaKey <- read.csv()
+  hiddenYVals <- etaKey$Yield
+  hiddenYVals[which(etaKey$Environment == hiddenLevel)] <- NA
   
-  pruned_data <- prune_data(remLevel, yieldVals, etaKey)
+  if (modelName == "m1") {
+    modYHats <- m1_BGLR_rr(eta, hiddenYVals, burnIn, nIter)
+  } else if (modelName == "m2") {
+    modYHats <- m2_BGLR_MErr(eta, hiddenYVals, etaKey, burnIn, nIter)
+  } else if (modelName == "m3") {
+    modYHats <- m3_BGLR_GxW(eta, hiddenYVals, burnIn, nIter)
+  } else if (modelName == "m4") {
+    modYHats <- m4_BGLR_GxS(eta, hiddenYVals, burnIn, nIter)
+  } else if (modelName == "m5") {
+    modYHats <- m3_BGLR_GxE(eta, hiddenYVals, etaKey, burnIn, nIter)
+  }
   
-  #order doesn't seem to change coefficients
-  yldGxEMod <- BGLR(pruned_data["training_yield"], ETA = pruned_data["training_eta"], 
-                    nIter = 15000, burnIn = 5000, thin=5,
-                    saveAt = "BGLR_Files/m3_")
+  #Do I want to save these in a big file?
+  hiddenYHats <- modYHats[which(etaKey$Environment == hiddenLevel)]
   
-  saveRDS(yldGxEMod, paste0("m3_", remLevel, "_", dateStr, ".rds"))
+  hiddenPA <- cor(hiddenYHats, etaKey$Yield[which(etaKey$Environment == hiddenLevel)])
   
-  m3_PA <- get_PA_BGLR(yldGxEMod, pruned_data["validation_yield"], pruned_data["validation_eta"])
+  return(hiddenPA)
+}
+
+#### CV Scenario Two
+
+leaveOneYearOut <- function() {
   
-  return(m3_PA)
+}
+
+#### Run rrBLUP BGLR base model
+m1_BGLR_rr <- function(eta, yVals, burnin, nIter) {
+  selectedETA <- eta[c("Geno", "Env")]
+  selectedETA$Geno$model <- "BRR"
+  
+  curModel <- BGLR(yVals, ETA = selectedETA, 
+                   burnIn = burnIn, nIter = nIter, thin=5,
+                   saveAt = "Model_Scripts/BGLR_Files/m1_")
+  
+  return(curModel$yHat)
+}
+
+#### Run rrBLUP Mega-Env clustering model.
+m2_BGLR_ME_rr <- function(eta, yVals, etaKey, burnin, nIter) {
+  selectedETA <- eta[c("Geno", "Env")]
+}
+
+#### Run BGLR GxW Base model
+m3_BGLR_GxW <- function(eta, yVals, burnIn, nIter) {
+  selectedETA <- eta[c("Geno", "Env", "GxW")]
+  
+  curModel <- BGLR(yVals, ETA = selectedETA, 
+                   burnIn = burnIn, nIter = nIter, thin=5,
+                   saveAt = "Model_Scripts/BGLR_Files/m3_")
+  
+  return(curModel$yHat)
 }
 
 
+#### Run BGLR GxW + GxS model
+m4_BGLR_GxS <- function(eta, yVals, burnIn, nIter) {
+  selectedETA <- eta[c("Geno", "Env", "GxW", "GxS")]
+  
+  curModel <- BGLR(y = yVals, ETA = selectedETA,
+                    burnIn = burnIn, nIter = nIter, thin=5,
+                    saveAt = "Model_Scripts/BGLR_Files/m4_")
+  
+  return(curModel$yHat)
+}
 
-
+#### Run BGLR GxW + GxS + HD x Weather model
+m5_BGLR_HD <- function(eta, yVals, burnIn, nIter) {
+  selectedETA <- eta[c("Geno", "Env", "GxW", "GxS")]
+  
+  hdVals
+  
+  hdModel <- BGLR()
+  
+  curModel <- BGLR(y = yVals, ETA = selectedETA,
+                    burnIn = burnIn, nIter = nIter, thin=5,
+                    saveAt = "Model_Scripts/BGLR_Files/m5_")
+  
+  return(curModel$yHat)
+}
 
